@@ -108,6 +108,11 @@ enum
 #define PROP_I_FRAMES_DEFAULT            0
 #define PROP_B_FRAMES_DEFAULT            0
 
+/* default depth of look ahead rate control algorithm
+ *  It is the number of frames that SDK encoder analyzes before
+ *  encoding */
+#define DEFAULT_LA_DEPTH                 10
+
 #define GST_MSDKENC_RATE_CONTROL_TYPE (gst_msdkenc_rate_control_get_type())
 static GType
 gst_msdkenc_rate_control_get_type (void)
@@ -119,6 +124,17 @@ gst_msdkenc_rate_control_get_type (void)
     {MFX_RATECONTROL_VBR, "Variable Bitrate", "vbr"},
     {MFX_RATECONTROL_CQP, "Constant Quantizer", "cqp"},
     {MFX_RATECONTROL_AVBR, "Average Bitrate", "avbr"},
+    {MFX_RATECONTROL_LA, "VBR with look ahead (Non HRD compliant)", "la_vbr"},
+    {MFX_RATECONTROL_ICQ, "Intelligent CQP", "icq"},
+    {MFX_RATECONTROL_VCM, "Video Conferencing Mode (Non HRD compliant)", "vcm"},
+    {MFX_RATECONTROL_LA_ICQ, "Intelligent CQP with LA (Non HRD compliant)",
+        "la_icq"},
+#if 0
+    /* intended for one to N transcode scenario */
+    {MFX_RATECONTROL_LA_EXT, "Extended LA", "la_ext"},
+#endif
+    {MFX_RATECONTROL_LA_HRD, "HRD compliant LA", "la_hrd"},
+    {MFX_RATECONTROL_QVBR, "VBR with CQP", "qvbr"},
     {0, NULL, NULL}
   };
 
@@ -212,6 +228,55 @@ gst_msdkenc_alloc_surfaces (GstMsdkEnc * thiz, GstVideoFormat format,
   }
 }
 
+static void
+ensure_bitrate_control (GstMsdkEnc * thiz, guint * need_opt2, guint * need_opt3)
+{
+  mfxInfoMFX *mfx = &thiz->param.mfx;
+  mfxExtCodingOption2 *option2 = &thiz->option2;
+  mfxExtCodingOption3 *option3 = &thiz->option3;
+
+  mfx->RateControlMethod = thiz->rate_control;
+
+  /* No effect in CQP varient algorithms */
+  mfx->TargetKbps = thiz->bitrate;
+
+  switch (mfx->RateControlMethod) {
+    case MFX_RATECONTROL_CQP:
+      mfx->QPI = thiz->qpi;
+      mfx->QPP = thiz->qpp;
+      mfx->QPB = thiz->qpb;
+      break;
+
+    case MFX_RATECONTROL_LA_ICQ:
+      option2->LookAheadDepth = DEFAULT_LA_DEPTH;
+      *need_opt2 = 1;
+    case MFX_RATECONTROL_ICQ:
+      mfx->ICQQuality = CLAMP (thiz->qpi, 1, 51);
+      break;
+
+    case MFX_RATECONTROL_LA:   /* VBR with LA */
+    case MFX_RATECONTROL_LA_HRD:
+      option2->LookAheadDepth = DEFAULT_LA_DEPTH;
+      *need_opt2 = 1;
+      break;
+
+    case MFX_RATECONTROL_QVBR:
+      option3->QVBRQuality = CLAMP (thiz->qpi, 1, 51);
+      *need_opt3 = 1;
+      break;
+
+    case MFX_RATECONTROL_CBR:
+    case MFX_RATECONTROL_AVBR:
+    case MFX_RATECONTROL_VCM:
+    case MFX_RATECONTROL_VBR:
+      break;
+
+    default:
+      GST_ERROR ("Unsupported RateContrl!");
+      break;
+  }
+}
+
 static gboolean
 gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
 {
@@ -221,6 +286,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   mfxStatus status;
   mfxFrameAllocRequest request[2];
   guint i;
+  guint need_extopt2 = 0, need_extopt3 = 0;
 
   if (!thiz->input_state) {
     GST_DEBUG_OBJECT (thiz, "Have no input state yet");
@@ -340,20 +406,12 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.AsyncDepth = thiz->async_depth;
   thiz->param.IOPattern = MFX_IOPATTERN_IN_SYSTEM_MEMORY;
 
-  thiz->param.mfx.RateControlMethod = thiz->rate_control;
-  thiz->param.mfx.TargetKbps = thiz->bitrate;
   thiz->param.mfx.TargetUsage = thiz->target_usage;
   thiz->param.mfx.GopPicSize = thiz->gop_size;
   thiz->param.mfx.GopRefDist = thiz->b_frames + 1;
   thiz->param.mfx.IdrInterval = thiz->i_frames;
   thiz->param.mfx.NumRefFrame = thiz->ref_frames;
   thiz->param.mfx.EncodedOrder = 0;     /* Take input frames in display order */
-
-  if (thiz->rate_control == MFX_RATECONTROL_CQP) {
-    thiz->param.mfx.QPI = thiz->qpi;
-    thiz->param.mfx.QPP = thiz->qpp;
-    thiz->param.mfx.QPB = thiz->qpb;
-  }
 
   thiz->param.mfx.FrameInfo.Width = GST_ROUND_UP_32 (info->width);
   thiz->param.mfx.FrameInfo.Height = GST_ROUND_UP_32 (info->height);
@@ -366,6 +424,20 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
   thiz->param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
   thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+
+  /* ensure bitrate control parameters */
+  ensure_bitrate_control (thiz, &need_extopt2, &need_extopt3);
+
+  if (need_extopt2) {
+    thiz->option2.Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
+    thiz->option2.Header.BufferSz = sizeof (thiz->option2);
+    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option2);
+  }
+  if (need_extopt3) {
+    thiz->option3.Header.BufferId = MFX_EXTBUFF_CODING_OPTION3;
+    thiz->option3.Header.BufferSz = sizeof (thiz->option3);
+    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option3);
+  }
 
   /* allow subclass configure further */
   if (klass->configure) {
@@ -1268,4 +1340,7 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->ref_frames = PROP_REF_FRAMES_DEFAULT;
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
+
+  memset (&thiz->option2, 0, sizeof (thiz->option2));
+  memset (&thiz->option2, 0, sizeof (thiz->option3));
 }

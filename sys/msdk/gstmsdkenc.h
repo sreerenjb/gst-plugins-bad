@@ -86,6 +86,10 @@ struct _GstMsdkEnc
   mfxExtBuffer *extra_params[MAX_EXTRA_PARAMS];
   guint num_extra_params;
 
+  /* Additional encoder coding options */
+  mfxExtCodingOption2 option2;
+  mfxExtCodingOption3 option3;
+
   /* element properties */
   gboolean hardware;
 
