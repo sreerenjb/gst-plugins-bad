@@ -52,9 +52,11 @@ libgstmsdk_la_SOURCES += \
 	msdk.c \
 	msdk_libva.c
 libgstmsdk_la_CFLAGS += \
-	$(LIBVA_DRM_CFLAGS)
+	$(LIBVA_DRM_CFLAGS) \
+	$(G_UDEV_CFLAGS)
 libgstmsdk_la_LIBADD += \
-	$(LIBVA_DRM_LIBS)
+	$(LIBVA_DRM_LIBS) \
+	$(G_UDEV_LIBS)
 endif
 
 libgstmsdk_la_LDFLAGS = $(GST_PLUGIN_LDFLAGS)
