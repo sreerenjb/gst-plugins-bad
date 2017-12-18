@@ -92,7 +92,8 @@ enum
   PROP_GOP_SIZE,
   PROP_REF_FRAMES,
   PROP_I_FRAMES,
-  PROP_B_FRAMES
+  PROP_B_FRAMES,
+  PROP_NUM_SLICES
 };
 
 #define PROP_HARDWARE_DEFAULT            TRUE
@@ -107,6 +108,7 @@ enum
 #define PROP_REF_FRAMES_DEFAULT          1
 #define PROP_I_FRAMES_DEFAULT            0
 #define PROP_B_FRAMES_DEFAULT            0
+#define PROP_NUM_SLICES_DEFAULT          0
 
 /* default depth of look ahead rate control algorithm
  *  It is the number of frames that SDK encoder analyzes before
@@ -410,6 +412,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.GopPicSize = thiz->gop_size;
   thiz->param.mfx.GopRefDist = thiz->b_frames + 1;
   thiz->param.mfx.IdrInterval = thiz->i_frames;
+  thiz->param.mfx.NumSlice = thiz->num_slices;
   thiz->param.mfx.NumRefFrame = thiz->ref_frames;
   thiz->param.mfx.EncodedOrder = 0;     /* Take input frames in display order */
 
@@ -1153,6 +1156,9 @@ gst_msdkenc_set_property (GObject * object, guint prop_id, const GValue * value,
     case PROP_B_FRAMES:
       thiz->b_frames = g_value_get_uint (value);
       break;
+    case PROP_NUM_SLICES:
+      thiz->num_slices = g_value_get_uint (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -1211,6 +1217,9 @@ gst_msdkenc_get_property (GObject * object, guint prop_id, GValue * value,
       break;
     case PROP_B_FRAMES:
       g_value_set_uint (value, thiz->b_frames);
+      break;
+    case PROP_NUM_SLICES:
+      g_value_set_uint (value, thiz->num_slices);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1321,6 +1330,12 @@ gst_msdkenc_class_init (GstMsdkEncClass * klass)
           0, G_MAXINT, PROP_B_FRAMES_DEFAULT,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_NUM_SLICES,
+      g_param_spec_uint ("num-slices", "Number of Slices",
+          "Number of slices per frame, Zero tells the encoder to "
+          "choose any slice partitioning allowed by the codec standard",
+          0, G_MAXINT, PROP_NUM_SLICES_DEFAULT,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   gst_element_class_add_static_pad_template (element_class, &sink_factory);
 }
@@ -1340,6 +1355,7 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->ref_frames = PROP_REF_FRAMES_DEFAULT;
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
+  thiz->num_slices = PROP_NUM_SLICES_DEFAULT;
 
   memset (&thiz->option2, 0, sizeof (thiz->option2));
   memset (&thiz->option2, 0, sizeof (thiz->option3));
