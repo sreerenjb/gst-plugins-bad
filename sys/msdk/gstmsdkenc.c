@@ -80,20 +80,20 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 
 enum
 {
-  PROP_0,
-  PROP_HARDWARE,
-  PROP_ASYNC_DEPTH,
-  PROP_TARGET_USAGE,
-  PROP_RATE_CONTROL,
-  PROP_BITRATE,
-  PROP_QPI,
-  PROP_QPP,
-  PROP_QPB,
-  PROP_GOP_SIZE,
-  PROP_REF_FRAMES,
-  PROP_I_FRAMES,
-  PROP_B_FRAMES,
-  PROP_NUM_SLICES
+  PROP_0 = 0,
+  PROP_HARDWARE = 1,
+  PROP_ASYNC_DEPTH = 2,
+  PROP_TARGET_USAGE = 3,
+  PROP_RATE_CONTROL = 4,
+  PROP_BITRATE = 5,
+  PROP_QPI = 6,
+  PROP_QPP = 7,
+  PROP_QPB = 8,
+  PROP_GOP_SIZE = 9,
+  PROP_REF_FRAMES = 10,
+  PROP_I_FRAMES = 11,
+  PROP_B_FRAMES = 12,
+  PROP_NUM_SLICES = 13,
 };
 
 #define PROP_HARDWARE_DEFAULT            TRUE
@@ -1104,19 +1104,22 @@ gst_msdkenc_propose_allocation (GstVideoEncoder * encoder, GstQuery * query)
       query);
 }
 
-static void
-gst_msdkenc_set_property (GObject * object, guint prop_id, const GValue * value,
-    GParamSpec * pspec)
+static gboolean
+gst_msdkenc_set_common_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
 {
   GstMsdkEnc *thiz = GST_MSDKENC (object);
+  gboolean ret = TRUE;
   GstState state;
 
   GST_OBJECT_LOCK (thiz);
 
   state = GST_STATE (thiz);
   if ((state != GST_STATE_READY && state != GST_STATE_NULL) &&
-      !(pspec->flags & GST_PARAM_MUTABLE_PLAYING))
+      !(pspec->flags & GST_PARAM_MUTABLE_PLAYING)) {
+    ret = FALSE;
     goto wrong_state;
+  }
 
   switch (prop_id) {
     case PROP_HARDWARE:
@@ -1161,24 +1164,27 @@ gst_msdkenc_set_property (GObject * object, guint prop_id, const GValue * value,
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      ret = FALSE;
       break;
   }
   GST_OBJECT_UNLOCK (thiz);
-  return;
+  return ret;
 
   /* ERROR */
 wrong_state:
   {
     GST_WARNING_OBJECT (thiz, "setting property in wrong state");
     GST_OBJECT_UNLOCK (thiz);
+    return ret;
   }
 }
 
-static void
-gst_msdkenc_get_property (GObject * object, guint prop_id, GValue * value,
-    GParamSpec * pspec)
+static gboolean
+gst_msdkenc_get_common_property (GObject * object, guint prop_id,
+    GValue * value, GParamSpec * pspec)
 {
   GstMsdkEnc *thiz = GST_MSDKENC (object);
+  gboolean ret = TRUE;
 
   GST_OBJECT_LOCK (thiz);
   switch (prop_id) {
@@ -1223,9 +1229,11 @@ gst_msdkenc_get_property (GObject * object, guint prop_id, GValue * value,
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      ret = FALSE;
       break;
   }
   GST_OBJECT_UNLOCK (thiz);
+  return ret;
 }
 
 static void
@@ -1251,8 +1259,6 @@ gst_msdkenc_class_init (GstMsdkEncClass * klass)
   element_class = GST_ELEMENT_CLASS (klass);
   gstencoder_class = GST_VIDEO_ENCODER_CLASS (klass);
 
-  gobject_class->set_property = gst_msdkenc_set_property;
-  gobject_class->get_property = gst_msdkenc_get_property;
   gobject_class->finalize = gst_msdkenc_finalize;
 
   gstencoder_class->set_format = GST_DEBUG_FUNCPTR (gst_msdkenc_set_format);
@@ -1264,78 +1270,8 @@ gst_msdkenc_class_init (GstMsdkEncClass * klass)
   gstencoder_class->propose_allocation =
       GST_DEBUG_FUNCPTR (gst_msdkenc_propose_allocation);
 
-  g_object_class_install_property (gobject_class, PROP_HARDWARE,
-      g_param_spec_boolean ("hardware", "Hardware", "Enable hardware encoders",
-          PROP_HARDWARE_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_ASYNC_DEPTH,
-      g_param_spec_uint ("async-depth", "Async Depth",
-          "Depth of asynchronous pipeline",
-          1, 20, PROP_ASYNC_DEPTH_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_TARGET_USAGE,
-      g_param_spec_uint ("target-usage", "Target Usage",
-          "1: Best quality, 4: Balanced, 7: Best speed",
-          1, 7, PROP_TARGET_USAGE_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_RATE_CONTROL,
-      g_param_spec_enum ("rate-control", "Rate Control",
-          "Rate control method", GST_MSDKENC_RATE_CONTROL_TYPE,
-          PROP_RATE_CONTROL_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_BITRATE,
-      g_param_spec_uint ("bitrate", "Bitrate", "Bitrate in kbit/sec", 1,
-          2000 * 1024, PROP_BITRATE_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-          GST_PARAM_MUTABLE_PLAYING));
-
-  g_object_class_install_property (gobject_class, PROP_QPI,
-      g_param_spec_uint ("qpi", "QPI",
-          "Constant quantizer for I frames (0 unlimited)",
-          0, 51, PROP_QPI_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_QPP,
-      g_param_spec_uint ("qpp", "QPP",
-          "Constant quantizer for P frames (0 unlimited)",
-          0, 51, PROP_QPP_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_QPB,
-      g_param_spec_uint ("qpb", "QPB",
-          "Constant quantizer for B frames (0 unlimited)",
-          0, 51, PROP_QPB_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_GOP_SIZE,
-      g_param_spec_uint ("gop-size", "GOP Size", "GOP Size", 0,
-          G_MAXINT, PROP_GOP_SIZE_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_REF_FRAMES,
-      g_param_spec_uint ("ref-frames", "Reference Frames",
-          "Number of reference frames",
-          0, G_MAXINT, PROP_REF_FRAMES_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_I_FRAMES,
-      g_param_spec_uint ("i-frames", "I Frames",
-          "Number of I frames between IDR frames",
-          0, G_MAXINT, PROP_I_FRAMES_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_B_FRAMES,
-      g_param_spec_uint ("b-frames", "B Frames",
-          "Number of B frames between I and P frames",
-          0, G_MAXINT, PROP_B_FRAMES_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
-
-  g_object_class_install_property (gobject_class, PROP_NUM_SLICES,
-      g_param_spec_uint ("num-slices", "Number of Slices",
-          "Number of slices per frame, Zero tells the encoder to "
-          "choose any slice partitioning allowed by the codec standard",
-          0, G_MAXINT, PROP_NUM_SLICES_DEFAULT,
-          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  klass->set_common_property = gst_msdkenc_set_common_property;
+  klass->get_common_property = gst_msdkenc_get_common_property;
 
   gst_element_class_add_static_pad_template (element_class, &sink_factory);
 }
@@ -1358,5 +1294,95 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->num_slices = PROP_NUM_SLICES_DEFAULT;
 
   memset (&thiz->option2, 0, sizeof (thiz->option2));
-  memset (&thiz->option2, 0, sizeof (thiz->option3));
+  memset (&thiz->option3, 0, sizeof (thiz->option3));
+}
+
+/* gst_msdkenc_install_common_properties:
+ * @thiz: a #GstMsdkEnc
+ *
+ * This is a helper function to install common properties
+ * of base encoder from subclass implementation.
+ * Encoders like jpeg do't require all the common properties
+ * and they can avoid installing it into base gobject.
+ */
+void
+gst_msdkenc_install_common_properties (GstMsdkEncClass * klass)
+{
+  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
+  GParamSpec *obj_properties[NUM_BASE_PROPERTIES] = { NULL, };
+
+  obj_properties[PROP_HARDWARE] =
+      g_param_spec_boolean ("hardware", "Hardware", "Enable hardware encoders",
+      PROP_HARDWARE_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_ASYNC_DEPTH] =
+      g_param_spec_uint ("async-depth", "Async Depth",
+      "Depth of asynchronous pipeline",
+      1, 20, PROP_ASYNC_DEPTH_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_TARGET_USAGE] =
+      g_param_spec_uint ("target-usage", "Target Usage",
+      "1: Best quality, 4: Balanced, 7: Best speed",
+      1, 7, PROP_TARGET_USAGE_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_RATE_CONTROL] =
+      g_param_spec_enum ("rate-control", "Rate Control",
+      "Rate control method", GST_MSDKENC_RATE_CONTROL_TYPE,
+      PROP_RATE_CONTROL_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_BITRATE] =
+      g_param_spec_uint ("bitrate", "Bitrate", "Bitrate in kbit/sec", 1,
+      2000 * 1024, PROP_BITRATE_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | GST_PARAM_MUTABLE_PLAYING);
+
+  obj_properties[PROP_QPI] =
+      g_param_spec_uint ("qpi", "QPI",
+      "Constant quantizer for I frames (0 unlimited)",
+      0, 51, PROP_QPI_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_QPP] =
+      g_param_spec_uint ("qpp", "QPP",
+      "Constant quantizer for P frames (0 unlimited)",
+      0, 51, PROP_QPP_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_QPB] =
+      g_param_spec_uint ("qpb", "QPB",
+      "Constant quantizer for B frames (0 unlimited)",
+      0, 51, PROP_QPB_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_GOP_SIZE] =
+      g_param_spec_uint ("gop-size", "GOP Size", "GOP Size", 0,
+      G_MAXINT, PROP_GOP_SIZE_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_REF_FRAMES] =
+      g_param_spec_uint ("ref-frames", "Reference Frames",
+      "Number of reference frames",
+      0, G_MAXINT, PROP_REF_FRAMES_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_I_FRAMES] =
+      g_param_spec_uint ("i-frames", "I Frames",
+      "Number of I frames between IDR frames",
+      0, G_MAXINT, PROP_I_FRAMES_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_B_FRAMES] =
+      g_param_spec_uint ("b-frames", "B Frames",
+      "Number of B frames between I and P frames",
+      0, G_MAXINT, PROP_B_FRAMES_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_NUM_SLICES] =
+      g_param_spec_uint ("num-slices", "Number of Slices",
+      "Number of slices per frame, Zero tells the encoder to "
+      "choose any slice partitioning allowed by the codec standard",
+      0, G_MAXINT, PROP_NUM_SLICES_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  g_object_class_install_properties (gobject_class, NUM_BASE_PROPERTIES,
+      obj_properties);
+
 }

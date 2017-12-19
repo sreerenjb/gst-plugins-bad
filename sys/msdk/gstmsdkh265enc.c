@@ -156,13 +156,49 @@ gst_msdkh265enc_set_src_caps (GstMsdkEnc * encoder)
 }
 
 static void
+gst_msdkh265enc_set_property (GObject * object, guint prop_id,
+    const GValue * value, GParamSpec * pspec)
+{
+  GstMsdkH265Enc *thiz = GST_MSDKH265ENC (object);
+  GstMsdkEncClass *msdkenc_class = GST_MSDKENC_GET_CLASS (thiz);
+
+  switch (prop_id) {
+    default:
+      if (!msdkenc_class->set_common_property (object, prop_id, value, pspec))
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+  return;
+}
+
+static void
+gst_msdkh265enc_get_property (GObject * object, guint prop_id, GValue * value,
+    GParamSpec * pspec)
+{
+  GstMsdkH265Enc *thiz = GST_MSDKH265ENC (object);
+  GstMsdkEncClass *msdkenc_class = GST_MSDKENC_GET_CLASS (thiz);
+
+  switch (prop_id) {
+    default:
+      if (!msdkenc_class->get_common_property (object, prop_id, value, pspec))
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      break;
+  }
+}
+
+static void
 gst_msdkh265enc_class_init (GstMsdkH265EncClass * klass)
 {
+  GObjectClass *gobject_class;
   GstElementClass *element_class;
   GstMsdkEncClass *encoder_class;
 
+  gobject_class = G_OBJECT_CLASS (klass);
   element_class = GST_ELEMENT_CLASS (klass);
   encoder_class = GST_MSDKENC_CLASS (klass);
+
+  gobject_class->set_property = gst_msdkh265enc_set_property;
+  gobject_class->get_property = gst_msdkh265enc_get_property;
 
   encoder_class->set_format = gst_msdkh265enc_set_format;
   encoder_class->configure = gst_msdkh265enc_configure;
@@ -173,6 +209,8 @@ gst_msdkh265enc_class_init (GstMsdkH265EncClass * klass)
       "Codec/Encoder/Video",
       "H265 video encoder based on Intel Media SDK",
       "Josep Torra <jtorra@oblong.com>");
+
+  gst_msdkenc_install_common_properties (encoder_class);
 
   gst_element_class_add_static_pad_template (element_class, &src_factory);
 }

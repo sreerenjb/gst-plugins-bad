@@ -43,8 +43,7 @@ GST_DEBUG_CATEGORY_EXTERN (gst_msdkh264enc_debug);
 
 enum
 {
-  PROP_0,
-  PROP_CABAC,
+  PROP_CABAC = NUM_BASE_PROPERTIES + 1,
   PROP_LOW_POWER,
   PROP_FRAME_PACKING,
 };
@@ -52,7 +51,6 @@ enum
 #define PROP_CABAC_DEFAULT            TRUE
 #define PROP_LOWPOWER_DEFAULT         FALSE
 #define PROP_FRAME_PACKING_DEFAULT    -1
-
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
@@ -382,6 +380,8 @@ gst_msdkh264enc_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstMsdkH264Enc *thiz = GST_MSDKH264ENC (object);
+  GstMsdkEncClass *msdkenc_class = GST_MSDKENC_GET_CLASS (thiz);
+
   GstState state;
 
   GST_OBJECT_LOCK (thiz);
@@ -402,7 +402,10 @@ gst_msdkh264enc_set_property (GObject * object, guint prop_id,
       thiz->frame_packing = g_value_get_enum (value);
       break;
     default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      GST_OBJECT_UNLOCK (thiz);
+      if (!msdkenc_class->set_common_property (object, prop_id, value, pspec))
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      GST_OBJECT_LOCK (thiz);
       break;
   }
   GST_OBJECT_UNLOCK (thiz);
@@ -421,6 +424,7 @@ gst_msdkh264enc_get_property (GObject * object, guint prop_id, GValue * value,
     GParamSpec * pspec)
 {
   GstMsdkH264Enc *thiz = GST_MSDKH264ENC (object);
+  GstMsdkEncClass *msdkenc_class = GST_MSDKENC_GET_CLASS (thiz);
 
   GST_OBJECT_LOCK (thiz);
   switch (prop_id) {
@@ -434,7 +438,10 @@ gst_msdkh264enc_get_property (GObject * object, guint prop_id, GValue * value,
       g_value_set_enum (value, thiz->frame_packing);
       break;
     default:
-      G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      GST_OBJECT_UNLOCK (thiz);
+      if (!msdkenc_class->get_common_property (object, prop_id, value, pspec))
+        G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+      GST_OBJECT_LOCK (thiz);
       break;
   }
   GST_OBJECT_UNLOCK (thiz);
@@ -461,6 +468,8 @@ gst_msdkh264enc_class_init (GstMsdkH264EncClass * klass)
   encoder_class->set_format = gst_msdkh264enc_set_format;
   encoder_class->configure = gst_msdkh264enc_configure;
   encoder_class->set_src_caps = gst_msdkh264enc_set_src_caps;
+
+  gst_msdkenc_install_common_properties (encoder_class);
 
   g_object_class_install_property (gobject_class, PROP_CABAC,
       g_param_spec_boolean ("cabac", "CABAC", "Enable CABAC entropy coding",

@@ -48,7 +48,7 @@ GST_DEBUG_CATEGORY_EXTERN (gst_msdkmjpegenc_debug);
 
 enum
 {
-  PROP_0,
+  PROP_0 = NUM_BASE_PROPERTIES + 1,
   PROP_QUALITY
 };
 
