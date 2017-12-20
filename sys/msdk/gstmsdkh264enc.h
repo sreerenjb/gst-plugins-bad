@@ -60,6 +60,7 @@ struct _GstMsdkH264Enc
   gint level;
 
   gboolean cabac;
+  guint trellis;
   gboolean lowpower;
   gint frame_packing;
 };

@@ -44,13 +44,18 @@ GST_DEBUG_CATEGORY_EXTERN (gst_msdkh264enc_debug);
 enum
 {
   PROP_CABAC = NUM_BASE_PROPERTIES + 1,
+  PROP_TRELLIS,
   PROP_LOW_POWER,
   PROP_FRAME_PACKING,
 };
 
+#define _MFX_TRELLIS_NONE    0
+
 #define PROP_CABAC_DEFAULT            TRUE
+#define PROP_TRELLIS_DEFAULT          _MFX_TRELLIS_NONE
 #define PROP_LOWPOWER_DEFAULT         FALSE
 #define PROP_FRAME_PACKING_DEFAULT    -1
+
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
@@ -61,6 +66,26 @@ static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
         "stream-format = (string) byte-stream , alignment = (string) au , "
         "profile = (string) { high, main, baseline, constrained-baseline }")
     );
+
+static GType
+gst_msdkh264enc_trellis_quantization_get_type (void)
+{
+  static GType type = 0;
+
+  static const GFlagsValue values[] = {
+    {_MFX_TRELLIS_NONE, "Disable for all frames", "None"},
+    {MFX_TRELLIS_I, "Enable for I frames", "i"},
+    {MFX_TRELLIS_P, "Enable for P frames", "p"},
+    {MFX_TRELLIS_B, "Enable for B frames", "b"},
+    {0, NULL, NULL}
+  };
+
+  if (!type) {
+    type =
+        g_flags_register_static ("GstMsdkH264EncTrellisQuantization", values);
+  }
+  return type;
+}
 
 static GType
 gst_msdkh264enc_frame_packing_get_type (void)
@@ -268,6 +293,9 @@ gst_msdkh264enc_configure (GstMsdkEnc * encoder)
   encoder->param.mfx.CodecProfile = thiz->profile;
   encoder->param.mfx.CodecLevel = thiz->level;
 
+  encoder->option2.Trellis = thiz->trellis ? thiz->trellis : MFX_TRELLIS_OFF;
+  encoder->enable_extopt2 = TRUE;
+
   thiz->option.Header.BufferId = MFX_EXTBUFF_CODING_OPTION;
   thiz->option.Header.BufferSz = sizeof (thiz->option);
   if (thiz->profile == MFX_PROFILE_AVC_CONSTRAINED_BASELINE ||
@@ -395,6 +423,9 @@ gst_msdkh264enc_set_property (GObject * object, guint prop_id,
     case PROP_CABAC:
       thiz->cabac = g_value_get_boolean (value);
       break;
+    case PROP_TRELLIS:
+      thiz->trellis = g_value_get_flags (value);
+      break;
     case PROP_LOW_POWER:
       thiz->lowpower = g_value_get_boolean (value);
       break;
@@ -430,6 +461,9 @@ gst_msdkh264enc_get_property (GObject * object, guint prop_id, GValue * value,
   switch (prop_id) {
     case PROP_CABAC:
       g_value_set_boolean (value, thiz->cabac);
+      break;
+    case PROP_TRELLIS:
+      g_value_set_flags (value, thiz->trellis);
       break;
     case PROP_LOW_POWER:
       g_value_set_boolean (value, thiz->lowpower);
@@ -475,6 +509,12 @@ gst_msdkh264enc_class_init (GstMsdkH264EncClass * klass)
       g_param_spec_boolean ("cabac", "CABAC", "Enable CABAC entropy coding",
           PROP_CABAC_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+  g_object_class_install_property (gobject_class, PROP_TRELLIS,
+      g_param_spec_flags ("trellis", "Trellis",
+          "Enable Trellis Quantization",
+          gst_msdkh264enc_trellis_quantization_get_type (), _MFX_TRELLIS_NONE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   g_object_class_install_property (gobject_class, PROP_LOW_POWER,
       g_param_spec_boolean ("low-power", "Low power", "Enable low power mode",
           PROP_LOWPOWER_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -484,6 +524,7 @@ gst_msdkh264enc_class_init (GstMsdkH264EncClass * klass)
           "Set frame packing mode for Stereoscopic content",
           gst_msdkh264enc_frame_packing_get_type (), PROP_FRAME_PACKING_DEFAULT,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
 
   gst_element_class_set_static_metadata (element_class,
       "Intel MSDK H264 encoder",
@@ -498,6 +539,7 @@ static void
 gst_msdkh264enc_init (GstMsdkH264Enc * thiz)
 {
   thiz->cabac = PROP_CABAC_DEFAULT;
+  thiz->trellis = PROP_TRELLIS_DEFAULT;
   thiz->lowpower = PROP_LOWPOWER_DEFAULT;
   thiz->frame_packing = PROP_FRAME_PACKING_DEFAULT;
 }

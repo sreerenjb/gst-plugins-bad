@@ -231,7 +231,7 @@ gst_msdkenc_alloc_surfaces (GstMsdkEnc * thiz, GstVideoFormat format,
 }
 
 static void
-ensure_bitrate_control (GstMsdkEnc * thiz, guint * need_opt2, guint * need_opt3)
+ensure_bitrate_control (GstMsdkEnc * thiz)
 {
   mfxInfoMFX *mfx = &thiz->param.mfx;
   mfxExtCodingOption2 *option2 = &thiz->option2;
@@ -251,7 +251,7 @@ ensure_bitrate_control (GstMsdkEnc * thiz, guint * need_opt2, guint * need_opt3)
 
     case MFX_RATECONTROL_LA_ICQ:
       option2->LookAheadDepth = DEFAULT_LA_DEPTH;
-      *need_opt2 = 1;
+      thiz->enable_extopt2 = TRUE;
     case MFX_RATECONTROL_ICQ:
       mfx->ICQQuality = CLAMP (thiz->qpi, 1, 51);
       break;
@@ -259,12 +259,12 @@ ensure_bitrate_control (GstMsdkEnc * thiz, guint * need_opt2, guint * need_opt3)
     case MFX_RATECONTROL_LA:   /* VBR with LA */
     case MFX_RATECONTROL_LA_HRD:
       option2->LookAheadDepth = DEFAULT_LA_DEPTH;
-      *need_opt2 = 1;
+      thiz->enable_extopt2 = TRUE;
       break;
 
     case MFX_RATECONTROL_QVBR:
       option3->QVBRQuality = CLAMP (thiz->qpi, 1, 51);
-      *need_opt3 = 1;
+      thiz->enable_extopt3 = TRUE;
       break;
 
     case MFX_RATECONTROL_CBR:
@@ -288,7 +288,6 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   mfxStatus status;
   mfxFrameAllocRequest request[2];
   guint i;
-  guint need_extopt2 = 0, need_extopt3 = 0;
 
   if (!thiz->input_state) {
     GST_DEBUG_OBJECT (thiz, "Have no input state yet");
@@ -429,23 +428,23 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
 
   /* ensure bitrate control parameters */
-  ensure_bitrate_control (thiz, &need_extopt2, &need_extopt3);
-
-  if (need_extopt2) {
-    thiz->option2.Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
-    thiz->option2.Header.BufferSz = sizeof (thiz->option2);
-    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option2);
-  }
-  if (need_extopt3) {
-    thiz->option3.Header.BufferId = MFX_EXTBUFF_CODING_OPTION3;
-    thiz->option3.Header.BufferSz = sizeof (thiz->option3);
-    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option3);
-  }
+  ensure_bitrate_control (thiz);
 
   /* allow subclass configure further */
   if (klass->configure) {
     if (!klass->configure (thiz))
       goto failed;
+  }
+
+  if (thiz->enable_extopt2) {
+    thiz->option2.Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
+    thiz->option2.Header.BufferSz = sizeof (thiz->option2);
+    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option2);
+  }
+  if (thiz->enable_extopt3) {
+    thiz->option3.Header.BufferId = MFX_EXTBUFF_CODING_OPTION3;
+    thiz->option3.Header.BufferSz = sizeof (thiz->option3);
+    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option3);
   }
 
   if (thiz->num_extra_params) {
@@ -1293,6 +1292,8 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
   thiz->num_slices = PROP_NUM_SLICES_DEFAULT;
 
+  thiz->enable_extopt2 = FALSE;
+  thiz->enable_extopt3 = FALSE;
   memset (&thiz->option2, 0, sizeof (thiz->option2));
   memset (&thiz->option3, 0, sizeof (thiz->option3));
 }
