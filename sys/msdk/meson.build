@@ -12,6 +12,7 @@ msdk_sources = [
   'gstmsdkmpeg2enc.c',
   'gstmsdkvp8dec.c',
   'gstmsdkvp8enc.c',
+  'gstmsdkvc1dec.c',
   'msdk.c',
 ]
 
