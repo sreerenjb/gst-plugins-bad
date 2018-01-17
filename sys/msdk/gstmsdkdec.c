@@ -493,18 +493,38 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
   GstBuffer *buffer;
   MsdkDecTask *task = NULL;
   MsdkSurface *surface = NULL;
-  mfxBitstream bitstream;
+  mfxBitstream *bitstream;
   mfxSession session;
   mfxStatus status;
   GstMapInfo map_info;
   guint i;
+  gsize data_size;
 
   if (!gst_buffer_map (frame->input_buffer, &map_info, GST_MAP_READ))
     return GST_FLOW_ERROR;
-  memset (&bitstream, 0, sizeof (bitstream));
-  bitstream.Data = map_info.data;
-  bitstream.DataLength = map_info.size;
-  bitstream.MaxLength = map_info.size;
+
+  bitstream = &thiz->bitstream;
+
+  if (thiz->is_packetized) {
+    /* Packetized stream: We prefer to have a parser as connected upstream
+     * element to the decoder */
+    memset (bitstream, 0, sizeof (*bitstream));
+    bitstream->Data = map_info.data;
+    bitstream->DataLength = map_info.size;
+    bitstream->MaxLength = map_info.size;
+  } else {
+    /* Non packetized streams: eg: vc1 advanced profile with per buffer bdu */
+    gst_adapter_push (thiz->adapter, gst_buffer_ref (frame->input_buffer));
+    data_size = gst_adapter_available (thiz->adapter);
+
+    bitstream->Data = (mfxU8 *) gst_adapter_map (thiz->adapter, data_size);
+    bitstream->DataLength = data_size - bitstream->DataOffset;
+    bitstream->MaxLength = data_size;
+
+    GST_INFO_OBJECT (thiz,
+        "mfxBitStream=> DataLength:%d DataOffset:%d MaxLength:%d",
+        bitstream->DataLength, bitstream->DataOffset, bitstream->MaxLength);
+  }
 
   session = msdk_context_get_session (thiz->context);
   for (;;) {
@@ -539,7 +559,7 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
     }
 
     status =
-        MFXVideoDECODE_DecodeFrameAsync (session, &bitstream, &surface->surface,
+        MFXVideoDECODE_DecodeFrameAsync (session, bitstream, &surface->surface,
         &task->surface, &task->sync_point);
     if (G_LIKELY (status == MFX_ERR_NONE)) {
       /* Locked may not be incremented immediately by the SDK, but
@@ -551,8 +571,14 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
       task->surface->Data.Locked++;
       thiz->next_task = (thiz->next_task + 1) % thiz->tasks->len;
       surface = NULL;
-      if (bitstream.DataLength == 0) {
+
+      if (bitstream->DataLength == 0 || !thiz->is_packetized) {
         flow = GST_FLOW_OK;
+        /* flush out the data which is already consumed by msdk */
+        if (!thiz->is_packetized) {
+          gst_adapter_flush (thiz->adapter, bitstream->DataOffset);
+          memset (bitstream, 0, sizeof (*bitstream));
+        }
         break;
       }
     } else if (status == MFX_ERR_MORE_DATA) {
@@ -817,6 +843,7 @@ gst_msdkdec_finalize (GObject * object)
   g_array_unref (thiz->surfaces);
   g_array_unref (thiz->tasks);
   g_ptr_array_unref (thiz->extra_params);
+  g_object_unref (thiz->adapter);
 }
 
 static void
@@ -868,4 +895,7 @@ gst_msdkdec_init (GstMsdkDec * thiz)
   thiz->tasks = g_array_new (FALSE, TRUE, sizeof (MsdkDecTask));
   thiz->hardware = PROP_HARDWARE_DEFAULT;
   thiz->async_depth = PROP_ASYNC_DEPTH_DEFAULT;
+  thiz->is_packetized = TRUE;
+  memset (&thiz->bitstream, 0, sizeof (thiz->bitstream));
+  thiz->adapter = gst_adapter_new ();
 }

@@ -64,10 +64,13 @@ struct _GstMsdkDec
   GstVideoInfo output_info;
   GstBufferPool *pool;
   GstVideoInfo pool_info;
+  GstAdapter *adapter;
+  gboolean is_packetized;
 
   /* MFX context */
   MsdkContext *context;
   mfxVideoParam param;
+  mfxBitstream bitstream;
   GPtrArray *extra_params;
   GArray *surfaces;
   GArray *tasks;
