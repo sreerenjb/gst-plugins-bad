@@ -53,6 +53,7 @@ G_BEGIN_DECLS
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKENC))
 
 #define MAX_EXTRA_PARAMS 8
+#define GST_MSDKENC_COMMON_PROPERTIES 13
 
 typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
@@ -132,6 +133,16 @@ struct _MsdkEncTask
 GType gst_msdkenc_get_type (void);
 
 void gst_msdkenc_add_extra_param (GstMsdkEnc * thiz, mfxExtBuffer * param);
+
+void
+gst_msdkenc_install_common_properties (GstMsdkEncClass *encoder_class);
+
+gboolean
+gst_msdkenc_set_common_property (GObject * object, guint prop_id,
+                                 const GValue * value, GParamSpec * pspec);
+gboolean
+gst_msdkenc_get_common_property (GObject * object, guint prop_id,
+                              GValue * value, GParamSpec * pspec);
 
 G_END_DECLS
 
