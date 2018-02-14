@@ -96,7 +96,8 @@ enum
   PROP_GOP_SIZE,
   PROP_REF_FRAMES,
   PROP_I_FRAMES,
-  PROP_B_FRAMES
+  PROP_B_FRAMES,
+  PROP_NUM_SLICES,
 };
 
 #define PROP_HARDWARE_DEFAULT            TRUE
@@ -111,6 +112,7 @@ enum
 #define PROP_REF_FRAMES_DEFAULT          1
 #define PROP_I_FRAMES_DEFAULT            0
 #define PROP_B_FRAMES_DEFAULT            0
+#define PROP_NUM_SLICES_DEFAULT          0
 
 #define GST_MSDKENC_RATE_CONTROL_TYPE (gst_msdkenc_rate_control_get_type())
 static GType
@@ -310,6 +312,7 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   thiz->param.mfx.GopPicSize = thiz->gop_size;
   thiz->param.mfx.GopRefDist = thiz->b_frames + 1;
   thiz->param.mfx.IdrInterval = thiz->i_frames;
+  thiz->param.mfx.NumSlice = thiz->num_slices;
   thiz->param.mfx.NumRefFrame = thiz->ref_frames;
   thiz->param.mfx.EncodedOrder = 0;     /* Take input frames in display order */
 
@@ -1319,6 +1322,7 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->ref_frames = PROP_REF_FRAMES_DEFAULT;
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
+  thiz->num_slices = PROP_NUM_SLICES_DEFAULT;
 }
 
 /* gst_msdkenc_set_common_property:
@@ -1380,6 +1384,9 @@ gst_msdkenc_set_common_property (GObject * object, guint prop_id,
       break;
     case PROP_B_FRAMES:
       thiz->b_frames = g_value_get_uint (value);
+      break;
+    case PROP_NUM_SLICES:
+      thiz->num_slices = g_value_get_uint (value);
       break;
     default:
       ret = FALSE;
@@ -1446,6 +1453,9 @@ gst_msdkenc_get_common_property (GObject * object, guint prop_id,
       break;
     case PROP_B_FRAMES:
       g_value_set_uint (value, thiz->b_frames);
+      break;
+    case PROP_NUM_SLICES:
+      g_value_set_uint (value, thiz->num_slices);
       break;
     default:
       ret = FALSE;
@@ -1531,6 +1541,13 @@ gst_msdkenc_install_common_properties (GstMsdkEncClass * klass)
       g_param_spec_uint ("b-frames", "B Frames",
       "Number of B frames between I and P frames",
       0, G_MAXINT, PROP_B_FRAMES_DEFAULT,
+      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_NUM_SLICES] =
+      g_param_spec_uint ("num-slices", "Number of Slices",
+      "Number of slices per frame, Zero tells the encoder to "
+      "choose any slice partitioning allowed by the codec standard",
+      0, G_MAXINT, PROP_NUM_SLICES_DEFAULT,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class,

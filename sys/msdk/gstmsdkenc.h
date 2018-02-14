@@ -53,7 +53,7 @@ G_BEGIN_DECLS
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKENC))
 
 #define MAX_EXTRA_PARAMS 8
-#define GST_MSDKENC_COMMON_PROPERTIES 13
+#define GST_MSDKENC_COMMON_PROPERTIES 14
 
 typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
@@ -108,6 +108,7 @@ struct _GstMsdkEnc
   guint ref_frames;
   guint i_frames;
   guint b_frames;
+  guint num_slices;
 
   gboolean reconfig;
 };
