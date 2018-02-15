@@ -54,7 +54,7 @@ G_BEGIN_DECLS
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_MSDKENC))
 
 #define MAX_EXTRA_PARAMS 8
-#define GST_MSDKENC_COMMON_PROPERTIES 19
+#define GST_MSDKENC_COMMON_PROPERTIES 22
 
 typedef struct _GstMsdkEnc GstMsdkEnc;
 typedef struct _GstMsdkEncClass GstMsdkEncClass;
@@ -91,7 +91,6 @@ struct _GstMsdkEnc
 
   /* Additional encoder coding options */
   mfxExtCodingOption2 option2;
-  gboolean enable_extopt2;
   mfxExtCodingOption3 option3;
   gboolean enable_extopt3;
 
@@ -121,6 +120,9 @@ struct _GstMsdkEnc
   guint i_frames;
   guint b_frames;
   guint num_slices;
+  gint16 mbbrc;
+  gint16 adaptive_i;
+  gint16 adaptive_b;
 
   gboolean reconfig;
 };

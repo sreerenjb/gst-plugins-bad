@@ -103,6 +103,9 @@ enum
   PROP_I_FRAMES,
   PROP_B_FRAMES,
   PROP_NUM_SLICES,
+  PROP_MBBRC,
+  PROP_ADAPTIVE_I,
+  PROP_ADAPTIVE_B,
 };
 
 #define PROP_HARDWARE_DEFAULT            TRUE
@@ -123,6 +126,9 @@ enum
 #define PROP_RC_LOOKAHEAD_DEPTH_DEFAULT  10
 #define PROP_MAX_VBV_BITRATE_DEFAULT     0
 #define PROP_MAX_FRAME_SIZE_DEFAULT      0
+#define PROP_MBBRC_DEFAULT               MFX_CODINGOPTION_OFF
+#define PROP_ADAPTIVE_I_DEFAULT          MFX_CODINGOPTION_OFF
+#define PROP_ADAPTIVE_B_DEFAULT          MFX_CODINGOPTION_OFF
 
 #define gst_msdkenc_parent_class parent_class
 G_DEFINE_TYPE (GstMsdkEnc, gst_msdkenc, GST_TYPE_VIDEO_ENCODER);
@@ -178,7 +184,6 @@ ensure_bitrate_control (GstMsdkEnc * thiz)
 
     case MFX_RATECONTROL_LA_ICQ:
       option2->LookAheadDepth = thiz->lookahead_depth;
-      thiz->enable_extopt2 = TRUE;
     case MFX_RATECONTROL_ICQ:
       mfx->ICQQuality = CLAMP (thiz->qpi, 1, 51);
       break;
@@ -186,7 +191,6 @@ ensure_bitrate_control (GstMsdkEnc * thiz)
     case MFX_RATECONTROL_LA:   /* VBR with LA. Only supported in H264?? */
     case MFX_RATECONTROL_LA_HRD:       /* VBR with LA, HRD compliant */
       option2->LookAheadDepth = thiz->lookahead_depth;
-      thiz->enable_extopt2 = TRUE;
       break;
 
     case MFX_RATECONTROL_QVBR:
@@ -200,7 +204,6 @@ ensure_bitrate_control (GstMsdkEnc * thiz)
 
     case MFX_RATECONTROL_VBR:
       option2->MaxFrameSize = thiz->max_frame_size * 1000;
-      thiz->enable_extopt2 = TRUE;
       break;
 
     case MFX_RATECONTROL_VCM:
@@ -214,6 +217,30 @@ ensure_bitrate_control (GstMsdkEnc * thiz)
     default:
       GST_ERROR ("Unsupported RateControl!");
       break;
+  }
+}
+
+static void
+ensure_extended_coding_options (GstMsdkEnc * thiz)
+{
+  mfxExtCodingOption2 *option2 = &thiz->option2;
+  mfxExtCodingOption3 *option3 = &thiz->option3;
+
+  /* Fill ExtendedCodingOption2, set non-zero defaults too */
+  option2->Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
+  option2->Header.BufferSz = sizeof (thiz->option2);
+  option2->MBBRC = thiz->mbbrc;
+  option2->AdaptiveI = thiz->adaptive_i;
+  option2->AdaptiveB = thiz->adaptive_b;
+  option2->BitrateLimit = MFX_CODINGOPTION_OFF;
+  option2->EnableMAD = MFX_CODINGOPTION_OFF;
+  option2->UseRawRef = MFX_CODINGOPTION_OFF;
+  gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) option2);
+
+  if (thiz->enable_extopt3) {
+    option3->Header.BufferId = MFX_EXTBUFF_CODING_OPTION3;
+    option3->Header.BufferSz = sizeof (thiz->option3);
+    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) option3);
   }
 }
 
@@ -379,21 +406,13 @@ gst_msdkenc_init_encoder (GstMsdkEnc * thiz)
   /* ensure bitrate control parameters */
   ensure_bitrate_control (thiz);
 
+  /* Enable ExtCodingOption2 */
+  ensure_extended_coding_options (thiz);
+
   /* allow subclass configure further */
   if (klass->configure) {
     if (!klass->configure (thiz))
       goto failed;
-  }
-
-  if (thiz->enable_extopt2) {
-    thiz->option2.Header.BufferId = MFX_EXTBUFF_CODING_OPTION2;
-    thiz->option2.Header.BufferSz = sizeof (thiz->option2);
-    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option2);
-  }
-  if (thiz->enable_extopt3) {
-    thiz->option3.Header.BufferId = MFX_EXTBUFF_CODING_OPTION3;
-    thiz->option3.Header.BufferSz = sizeof (thiz->option3);
-    gst_msdkenc_add_extra_param (thiz, (mfxExtBuffer *) & thiz->option3);
   }
 
   if (thiz->num_extra_params) {
@@ -1384,8 +1403,8 @@ gst_msdkenc_init (GstMsdkEnc * thiz)
   thiz->i_frames = PROP_I_FRAMES_DEFAULT;
   thiz->b_frames = PROP_B_FRAMES_DEFAULT;
   thiz->num_slices = PROP_NUM_SLICES_DEFAULT;
+  thiz->mbbrc = PROP_MBBRC_DEFAULT;
 
-  thiz->enable_extopt2 = FALSE;
   thiz->enable_extopt3 = FALSE;
   memset (&thiz->option2, 0, sizeof (thiz->option2));
   memset (&thiz->option2, 0, sizeof (thiz->option3));
@@ -1468,6 +1487,15 @@ gst_msdkenc_set_common_property (GObject * object, guint prop_id,
       break;
     case PROP_NUM_SLICES:
       thiz->num_slices = g_value_get_uint (value);
+      break;
+    case PROP_MBBRC:
+      thiz->mbbrc = g_value_get_enum (value);
+      break;
+    case PROP_ADAPTIVE_I:
+      thiz->adaptive_i = g_value_get_enum (value);
+      break;
+    case PROP_ADAPTIVE_B:
+      thiz->adaptive_b = g_value_get_enum (value);
       break;
     default:
       ret = FALSE;
@@ -1552,6 +1580,15 @@ gst_msdkenc_get_common_property (GObject * object, guint prop_id,
       break;
     case PROP_NUM_SLICES:
       g_value_set_uint (value, thiz->num_slices);
+      break;
+    case PROP_MBBRC:
+      g_value_set_enum (value, thiz->mbbrc);
+      break;
+    case PROP_ADAPTIVE_I:
+      g_value_set_enum (value, thiz->adaptive_i);
+      break;
+    case PROP_ADAPTIVE_B:
+      g_value_set_enum (value, thiz->adaptive_b);
       break;
     default:
       ret = FALSE;
@@ -1675,6 +1712,24 @@ gst_msdkenc_install_common_properties (GstMsdkEncClass * klass)
       "choose any slice partitioning allowed by the codec standard",
       0, G_MAXINT, PROP_NUM_SLICES_DEFAULT,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_MBBRC] =
+      g_param_spec_enum ("mbbrc", "MB level bitrate control",
+      "Macroblock level bitrate control",
+      gst_msdkenc_mbbrc_get_type (),
+      PROP_MBBRC_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_ADAPTIVE_I] =
+      g_param_spec_enum ("i-adapt", "Adaptive I-Frame Insertion",
+      "Adaptive I-Frame Insertion control",
+      gst_msdkenc_adaptive_i_get_type (),
+      PROP_ADAPTIVE_I_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_ADAPTIVE_B] =
+      g_param_spec_enum ("b-adapt", "Adaptive B-Frame Insertion",
+      "Adaptive B-Frame Insertion control",
+      gst_msdkenc_adaptive_b_get_type (),
+      PROP_ADAPTIVE_B_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (gobject_class,
       GST_MSDKENC_COMMON_PROPERTIES, obj_properties);
