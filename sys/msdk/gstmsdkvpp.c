@@ -63,14 +63,18 @@ GST_STATIC_PAD_TEMPLATE ("src",
 
 enum
 {
-  PROP_0 = 0,
-  PROP_HARDWARE = 1,
-  PROP_ASYNC_DEPTH = 2,
+  PROP_0,
+  PROP_HARDWARE,
+  PROP_ASYNC_DEPTH,
+  PROP_DENOISE,
+  PROP_ROTATION,
   PROP_N,
 };
 
 #define PROP_HARDWARE_DEFAULT            TRUE
 #define PROP_ASYNC_DEPTH_DEFAULT         1
+#define PROP_DENOISE_DEFAULT             0
+#define PROP_ROTATION_DEFAULT            MFX_ANGLE_0
 
 #define gst_msdkvpp_parent_class parent_class
 G_DEFINE_TYPE (GstMsdkVPP, gst_msdkvpp, GST_TYPE_BASE_TRANSFORM);
@@ -87,6 +91,15 @@ free_msdk_surface (MsdkSurface * surface)
   if (surface->buf)
     gst_buffer_unref (surface->buf);
   g_slice_free (MsdkSurface, surface);
+}
+
+static void
+gst_msdkvpp_add_extra_param (GstMsdkVPP * thiz, mfxExtBuffer * param)
+{
+  if (thiz->num_extra_params < MAX_EXTRA_PARAMS) {
+    thiz->extra_params[thiz->num_extra_params] = param;
+    thiz->num_extra_params++;
+  }
 }
 
 static gboolean
@@ -572,9 +585,51 @@ gst_msdkvpp_close (GstMsdkVPP * thiz)
 }
 
 static void
+ensure_filters (GstMsdkVPP * thiz)
+{
+  guint n_filters = 0;
+
+  /* Denoise */
+  if (thiz->flags & GST_MSDK_FLAG_DENOISE) {
+    mfxExtVPPDenoise *mfx_denoise = &thiz->mfx_denoise;
+    mfx_denoise->Header.BufferId = MFX_EXTBUFF_VPP_DENOISE;
+    mfx_denoise->Header.BufferSz = sizeof (mfxExtVPPDenoise);
+    mfx_denoise->DenoiseFactor = thiz->denoise_factor;
+    gst_msdkvpp_add_extra_param (thiz, (mfxExtBuffer *) mfx_denoise);
+    thiz->max_filter_algorithms[n_filters] = MFX_EXTBUFF_VPP_DENOISE;
+    n_filters++;
+  }
+
+  /* Rotation */
+  if (thiz->flags & GST_MSDK_FLAG_ROTATION) {
+    mfxExtVPPRotation *mfx_rotation = &thiz->mfx_rotation;
+    mfx_rotation->Header.BufferId = MFX_EXTBUFF_VPP_ROTATION;
+    mfx_rotation->Header.BufferSz = sizeof (mfxExtVPPRotation);
+    mfx_rotation->Angle = thiz->rotation;
+    gst_msdkvpp_add_extra_param (thiz, (mfxExtBuffer *) mfx_rotation);
+    thiz->max_filter_algorithms[n_filters] = MFX_EXTBUFF_VPP_ROTATION;
+    n_filters++;
+  }
+
+  /* mfxExtVPPDoUse */
+  if (n_filters) {
+    mfxExtVPPDoUse *mfx_vpp_douse = &thiz->mfx_vpp_douse;
+    mfx_vpp_douse->Header.BufferId = MFX_EXTBUFF_VPP_DOUSE;
+    mfx_vpp_douse->Header.BufferSz = sizeof (mfxExtVPPDoUse);
+    mfx_vpp_douse->NumAlg = n_filters;
+    mfx_vpp_douse->AlgList = thiz->max_filter_algorithms;
+    gst_msdkvpp_add_extra_param (thiz, (mfxExtBuffer *) mfx_vpp_douse);
+  }
+}
+
+static void
 gst_msdkvpp_set_passthrough (GstMsdkVPP * thiz)
 {
   gboolean passthrough = TRUE;
+
+  /* no passthrough if any of the filter algorithm is enabled */
+  if (thiz->flags)
+    passthrough = FALSE;
 
   /* no passthrough if there is change in out width,height or format */
   if (GST_VIDEO_INFO_WIDTH (&thiz->sinkpad_info) !=
@@ -637,8 +692,17 @@ gst_msdkvpp_initialize (GstMsdkVPP * thiz)
         msdk_status_to_string (status));
   }
 
+  /* Enable the required filters */
+  ensure_filters (thiz);
+
   /* set passthrough according to filter operation change */
   gst_msdkvpp_set_passthrough (thiz);
+
+  /* Add exteneded buffers */
+  if (thiz->num_extra_params) {
+    thiz->param.NumExtParam = thiz->num_extra_params;
+    thiz->param.ExtParam = thiz->extra_params;
+  }
 
   status = MFXVideoVPP_QueryIOSurf (session, &thiz->param, request);
   if (status < MFX_ERR_NONE) {
@@ -659,6 +723,7 @@ gst_msdkvpp_initialize (GstMsdkVPP * thiz)
 
   thiz->in_num_surfaces = request[0].NumFrameSuggested;
   thiz->out_num_surfaces = request[1].NumFrameSuggested;
+
 
   status = MFXVideoVPP_Init (session, &thiz->param);
   if (status < MFX_ERR_NONE) {
@@ -806,6 +871,14 @@ gst_msdkvpp_set_property (GObject * object, guint prop_id,
     case PROP_ASYNC_DEPTH:
       thiz->async_depth = g_value_get_uint (value);
       break;
+    case PROP_DENOISE:
+      thiz->denoise_factor = g_value_get_uint (value);
+      thiz->flags |= GST_MSDK_FLAG_DENOISE;
+      break;
+    case PROP_ROTATION:
+      thiz->rotation = g_value_get_enum (value);
+      thiz->flags |= GST_MSDK_FLAG_ROTATION;
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -824,6 +897,12 @@ gst_msdkvpp_get_property (GObject * object, guint prop_id,
       break;
     case PROP_ASYNC_DEPTH:
       g_value_set_uint (value, thiz->async_depth);
+      break;
+    case PROP_DENOISE:
+      g_value_set_uint (value, thiz->denoise_factor);
+      break;
+    case PROP_ROTATION:
+      g_value_set_enum (value, thiz->rotation);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -905,6 +984,16 @@ gst_msdkvpp_class_init (GstMsdkVPPClass * klass)
       1, 1, PROP_ASYNC_DEPTH_DEFAULT,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
+  obj_properties[PROP_DENOISE] =
+      g_param_spec_uint ("denoise", "Denoising factor",
+      "Denoising Factor",
+      0, 100, PROP_DENOISE_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  obj_properties[PROP_ROTATION] =
+      g_param_spec_enum ("rotation", "Rotation",
+      "Rotation Angle", gst_msdkvpp_rotation_get_type (),
+      PROP_ROTATION_DEFAULT, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
   g_object_class_install_properties (gobject_class, PROP_N, obj_properties);
 }
 
@@ -913,6 +1002,8 @@ gst_msdkvpp_init (GstMsdkVPP * thiz)
 {
   thiz->hardware = PROP_HARDWARE_DEFAULT;
   thiz->async_depth = PROP_ASYNC_DEPTH_DEFAULT;
+  thiz->denoise_factor = PROP_DENOISE_DEFAULT;
+  thiz->rotation = PROP_ROTATION_DEFAULT;
   gst_video_info_init (&thiz->sinkpad_info);
   gst_video_info_init (&thiz->srcpad_info);
 }
