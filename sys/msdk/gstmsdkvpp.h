@@ -62,6 +62,10 @@ typedef enum {
   GST_MSDK_FLAG_DENOISE     = 1 << 0,
   GST_MSDK_FLAG_ROTATION    = 1 << 1,
   GST_MSDK_FLAG_DEINTERLACE = 1 << 2,
+  GST_MSDK_FLAG_HUE         = 1 << 3,
+  GST_MSDK_FLAG_SATURATION  = 1 << 4,
+  GST_MSDK_FLAG_BRIGHTNESS  = 1 << 5,
+  GST_MSDK_FLAG_CONTRAST    = 1 << 6,
 } GstMsdkVppFlags;
 
 struct _GstMsdkVPP
@@ -100,6 +104,11 @@ struct _GstMsdkVPP
   guint rotation;
   guint deinterlace_mode;
   guint deinterlace_method;
+  gfloat hue;
+  gfloat saturation;
+  gfloat brightness;
+  gfloat contrast;
+
   GstClockTime field_duration;
 
   /* MFX Filters */
@@ -108,6 +117,7 @@ struct _GstMsdkVPP
   mfxExtVPPDenoise mfx_denoise;
   mfxExtVPPRotation mfx_rotation;
   mfxExtVPPDeinterlacing mfx_deinterlace;
+  mfxExtVPPProcAmp mfx_procamp;
 
   /* Extended buffers */
   mfxExtBuffer *extra_params[MAX_EXTRA_PARAMS];
