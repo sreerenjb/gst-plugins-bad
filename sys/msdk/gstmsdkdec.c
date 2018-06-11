@@ -80,7 +80,9 @@ typedef struct _MsdkSurface
   GstVideoFrame copy;
 } MsdkSurface;
 
+static gboolean gst_msdkdec_drain (GstVideoDecoder * decoder);
 static gboolean gst_msdkdec_flush (GstVideoDecoder * decoder);
+static gboolean gst_msdkdec_negotiate (GstMsdkDec * thiz);
 
 static GstFlowReturn
 allocate_output_buffer (GstMsdkDec * thiz, GstBuffer ** buffer)
@@ -606,12 +608,21 @@ gst_msdkdec_set_format (GstVideoDecoder * decoder, GstVideoCodecState * state)
 {
   GstMsdkDec *thiz = GST_MSDKDEC (decoder);
 
-  if (thiz->input_state)
+  if (thiz->input_state) {
+    /* mark for re-negotiation if display resolution changes */
+    if ((GST_VIDEO_INFO_WIDTH (&thiz->input_state->info) !=
+            GST_VIDEO_INFO_WIDTH (&state->info)) ||
+        GST_VIDEO_INFO_HEIGHT (&thiz->input_state->info) !=
+        GST_VIDEO_INFO_HEIGHT (&state->info))
+      thiz->do_renego = TRUE;
     gst_video_codec_state_unref (thiz->input_state);
+  }
   thiz->input_state = gst_video_codec_state_ref (state);
 
-  if (!gst_msdkdec_set_src_caps (thiz))
-    return FALSE;
+  /* we don't set output state here to avoid caching of mismatched
+   * video information if there is dynamic resolution change in the stream.
+   * All negotiation code is consolidated in gst_msdkdec_negotiate() and
+   * this will be invoked from handle_frame() */
 
   gst_msdkdec_set_latency (thiz);
   return TRUE;
@@ -629,6 +640,52 @@ release_msdk_surfaces (GstMsdkDec * thiz)
   }
 }
 
+static gboolean
+gst_msdkdec_negotiate (GstMsdkDec * thiz)
+{
+  GST_DEBUG_OBJECT (thiz,
+      "Incompatible Video parameter, need full decoder reset!");
+
+  /* Retrieve any pending frames and push them downstream */
+  /* Fixme1??: This may not work well for VP9 which allows varying resolution
+   * frames to have inter-dependency */
+  /* Fixme2: The use where input video frames have same size but varying display
+   * resolution could also break */
+  if (gst_msdkdec_drain (GST_VIDEO_DECODER (thiz)) != GST_FLOW_OK)
+    goto error_drain;
+
+  /* De-initialize the decoder if it is already active */
+  gst_msdkdec_close_decoder (thiz);
+
+  /* at this point all pending frames(if there is any) are pushed downsteram
+   * and the msdk has been Inited with the new video parms */
+  if (!gst_msdkdec_set_src_caps (thiz))
+    return FALSE;
+
+  if (!gst_video_decoder_negotiate (GST_VIDEO_DECODER (thiz)))
+    goto error_negotiate;
+
+  /* Re-initialize the decoder */
+  if (!gst_msdkdec_init_decoder (thiz))
+    goto error_init;
+
+  thiz->do_renego = FALSE;
+
+  return TRUE;
+
+error_drain:
+  GST_ERROR_OBJECT (thiz, "Failed to Drain the queued decoded frames");
+  return FALSE;
+
+error_init:
+  GST_ERROR_OBJECT (thiz, "Failed to Init the MediaSDK Decoder");
+  return FALSE;
+
+error_negotiate:
+  GST_ERROR_OBJECT (thiz, "Failed to renegotiation");
+  return FALSE;
+}
+
 static GstFlowReturn
 gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
 {
@@ -644,8 +701,8 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
   guint i;
   gsize data_size;
 
-  if (!thiz->initialized)
-    gst_video_decoder_negotiate (decoder);
+  if (!thiz->initialized || thiz->do_renego)
+    gst_msdkdec_negotiate (thiz);
 
   if (!gst_buffer_map (frame->input_buffer, &map_info, GST_MAP_READ))
     return GST_FLOW_ERROR;
@@ -707,7 +764,19 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
     status =
         MFXVideoDECODE_DecodeFrameAsync (session, &bitstream, surface->surface,
         &task->surface, &task->sync_point);
-    if (G_LIKELY (status == MFX_ERR_NONE)) {
+
+    /* media-sdk requires complete reset since the surface is inadaquate to
+     * do further decoding */
+    if (status == MFX_ERR_INCOMPATIBLE_VIDEO_PARAM) {
+      if (!gst_msdkdec_negotiate (thiz))
+        goto error;
+      status =
+          MFXVideoDECODE_DecodeFrameAsync (session, &bitstream,
+          surface->surface, &task->surface, &task->sync_point);
+    }
+
+    if (G_LIKELY (status == MFX_ERR_NONE)
+        || (status == MFX_WRN_VIDEO_PARAM_CHANGED)) {
       thiz->next_task = (thiz->next_task + 1) % thiz->tasks->len;
 
       if (surface->surface->Data.Locked > 0 || !thiz->use_video_memory)
@@ -888,7 +957,9 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
 
     /* FIXME: this might break renegotiation.
      * We should re-create msdk bufferpool, but it breaks decoding. */
-    if (!thiz->pool) {
+    if (!thiz->pool || thiz->do_renego) {
+      if (thiz->pool)
+        gst_object_replace ((GstObject **) & thiz->pool, NULL);
       thiz->pool =
           gst_msdkdec_create_buffer_pool (thiz, pool_caps, min_buffers);
       if (!thiz->pool)
@@ -1178,5 +1249,6 @@ gst_msdkdec_init (GstMsdkDec * thiz)
   thiz->async_depth = PROP_ASYNC_DEPTH_DEFAULT;
   thiz->output_order = PROP_OUTPUT_ORDER_DEFAULT;
   thiz->is_packetized = TRUE;
+  thiz->do_renego = TRUE;
   thiz->adapter = gst_adapter_new ();
 }

@@ -73,6 +73,7 @@ struct _GstMsdkDec
   /* for packetization */
   GstAdapter *adapter;
   gboolean is_packetized;
+  gboolean do_renego;
 
   /* MFX context */
   GstMsdkContext *context;
