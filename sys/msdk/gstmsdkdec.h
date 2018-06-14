@@ -62,7 +62,9 @@ struct _GstMsdkDec
 
   /* input description */
   GstVideoCodecState *input_state;
+  /* output info (may not be equal to allocation info) */
   GstVideoInfo output_info;
+  GstCaps *allocation_caps;
   GstBufferPool *pool;
   GstVideoInfo pool_info;
   mfxFrameAllocResponse alloc_resp;
