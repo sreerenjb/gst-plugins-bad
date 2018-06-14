@@ -259,32 +259,35 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
       thiz->use_video_memory ? "video" : "system");
 
   thiz->param.AsyncDepth = thiz->async_depth;
-  thiz->param.mfx.FrameInfo.Width = GST_ROUND_UP_32 (info->width);
-  thiz->param.mfx.FrameInfo.Height = GST_ROUND_UP_32 (info->height);
-  thiz->param.mfx.FrameInfo.CropW = info->width;
-  thiz->param.mfx.FrameInfo.CropH = info->height;
-
-  /* Set framerate only if provided.
-   * If not, framerate will be assumed inside the driver */
-  if (info->fps_n > 0 && info->fps_d > 0) {
-    thiz->param.mfx.FrameInfo.FrameRateExtN = info->fps_n;
-    thiz->param.mfx.FrameInfo.FrameRateExtD = info->fps_d;
-  }
-  thiz->param.mfx.FrameInfo.AspectRatioW = info->par_n;
-  thiz->param.mfx.FrameInfo.AspectRatioH = info->par_d;
-  thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-  thiz->param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
-  thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
-  thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-
   /* This is a deprecated attribute in msdk-2017 version, but some
    * customers still using this for low-latency streaming of non-b-frame
    * encoded streams */
   thiz->param.mfx.DecodedOrder = thiz->output_order;
-  /* allow subclass configure further */
-  if (klass->configure) {
-    if (!klass->configure (thiz))
-      goto failed;
+
+  if (!thiz->param.mfx.FrameInfo.Width || !thiz->param.mfx.FrameInfo.Height) {
+    thiz->param.mfx.FrameInfo.Width = GST_ROUND_UP_32 (info->width);
+    thiz->param.mfx.FrameInfo.Height = GST_ROUND_UP_32 (info->height);
+    thiz->param.mfx.FrameInfo.CropW = info->width;
+    thiz->param.mfx.FrameInfo.CropH = info->height;
+
+    /* Set framerate only if provided.
+     * If not, framerate will be assumed inside the driver */
+    if (info->fps_n > 0 && info->fps_d > 0) {
+      thiz->param.mfx.FrameInfo.FrameRateExtN = info->fps_n;
+      thiz->param.mfx.FrameInfo.FrameRateExtD = info->fps_d;
+    }
+    thiz->param.mfx.FrameInfo.AspectRatioW = info->par_n;
+    thiz->param.mfx.FrameInfo.AspectRatioH = info->par_d;
+    thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    thiz->param.mfx.FrameInfo.FourCC = MFX_FOURCC_NV12;
+    thiz->param.mfx.FrameInfo.ChromaFormat = MFX_CHROMAFORMAT_YUV420;
+    thiz->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+
+    /* allow subclass configure further */
+    if (klass->configure) {
+      if (!klass->configure (thiz))
+        goto failed;
+    }
   }
 
   thiz->param.NumExtParam = thiz->extra_params->len;
@@ -317,7 +320,7 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
         request.NumFrameMin, request.NumFrameSuggested, thiz->param.AsyncDepth);
     goto failed;
   }
-
+  g_message ("numframesuggested %d", request.NumFrameSuggested);
   if (thiz->use_video_memory) {
     gint shared_async_depth;
 
@@ -419,25 +422,56 @@ gst_msdkdec_set_src_caps (GstMsdkDec * thiz)
 {
   GstVideoCodecState *output_state;
   GstVideoAlignment align;
+  GstVideoInfo *vinfo;
+  GstCaps *allocation_caps = NULL;
   guint width, height;
 
-  width = GST_VIDEO_INFO_WIDTH (&thiz->input_state->info);
-  height = GST_VIDEO_INFO_HEIGHT (&thiz->input_state->info);
-
+  /* use display width and display height in output state which
+   * will be using for caps negotiation */
+  width =
+      thiz->param.mfx.FrameInfo.CropW ? thiz->param.mfx.
+      FrameInfo.CropW : GST_VIDEO_INFO_WIDTH (&thiz->input_state->info);
+  height =
+      thiz->param.mfx.FrameInfo.CropH ? thiz->param.mfx.
+      FrameInfo.CropH : GST_VIDEO_INFO_HEIGHT (&thiz->input_state->info);
   output_state =
       gst_video_decoder_set_output_state (GST_VIDEO_DECODER (thiz),
       GST_VIDEO_FORMAT_NV12, width, height, thiz->input_state);
+  if (!output_state)
+    return FALSE;
 
-  gst_msdk_set_video_alignment (&output_state->info, &align);
-  gst_video_info_align (&output_state->info, &align);
-  thiz->output_info = output_state->info;
-  if (output_state->caps)
-    gst_caps_unref (output_state->caps);
-  output_state->caps = gst_video_info_to_caps (&output_state->info);
-
+  /* Ensure output_state->caps and info has same width and height */
+  vinfo = &output_state->info;
+  output_state->caps = gst_video_info_to_caps (vinfo);
   if (srcpad_can_dmabuf (thiz))
     gst_caps_set_features (output_state->caps, 0,
         gst_caps_features_new (GST_CAPS_FEATURE_MEMORY_DMABUF, NULL));
+
+  /* Find allocation width and height */
+  width =
+      thiz->param.mfx.FrameInfo.Width ? thiz->param.mfx.
+      FrameInfo.Width : GST_VIDEO_INFO_WIDTH (&output_state->info);
+  height =
+      thiz->param.mfx.FrameInfo.Height ? thiz->param.mfx.
+      FrameInfo.Height : GST_VIDEO_INFO_HEIGHT (&output_state->info);
+
+  /* set allocation width and height in allocation_caps
+   * which may or may not be similar to the output_state caps */
+  thiz->output_info = output_state->info;
+  vinfo = &thiz->output_info;
+  GST_VIDEO_INFO_WIDTH (vinfo) = width;
+  GST_VIDEO_INFO_HEIGHT (vinfo) = height;
+  gst_msdk_set_video_alignment (vinfo, &align);
+  gst_video_info_align (vinfo, &align);
+  if (GST_VIDEO_INFO_WIDTH (&thiz->input_state->info) !=
+      GST_VIDEO_INFO_WIDTH (&output_state->info)
+      || GST_VIDEO_INFO_HEIGHT (&thiz->input_state->info) !=
+      GST_VIDEO_INFO_HEIGHT (&output_state->info))
+    allocation_caps = gst_video_info_to_caps (vinfo);
+
+  gst_caps_replace (&output_state->allocation_caps, allocation_caps);
+  if (allocation_caps)
+    gst_caps_unref (allocation_caps);
 
   gst_video_codec_state_unref (output_state);
 
@@ -645,7 +679,7 @@ gst_msdkdec_negotiate (GstMsdkDec * thiz)
 {
   GST_DEBUG_OBJECT (thiz,
       "Incompatible Video parameter, need full decoder reset!");
-
+  g_message ("negotiate");
   /* Retrieve any pending frames and push them downstream */
   /* Fixme1??: This may not work well for VP9 which allows varying resolution
    * frames to have inter-dependency */
@@ -690,6 +724,7 @@ static GstFlowReturn
 gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
 {
   GstMsdkDec *thiz = GST_MSDKDEC (decoder);
+  GstMsdkDecClass *klass = GST_MSDKDEC_GET_CLASS (thiz);
   GstFlowReturn flow;
   GstBuffer *buffer;
   MsdkDecTask *task = NULL;
@@ -700,9 +735,6 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
   GstMapInfo map_info;
   guint i;
   gsize data_size;
-
-  if (!thiz->initialized || thiz->do_renego)
-    gst_msdkdec_negotiate (thiz);
 
   if (!gst_buffer_map (frame->input_buffer, &map_info, GST_MAP_READ))
     return GST_FLOW_ERROR;
@@ -730,6 +762,31 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
       bitstream.DataLength, bitstream.DataOffset, bitstream.MaxLength);
 
   session = gst_msdk_context_get_session (thiz->context);
+
+  if (!thiz->initialized || thiz->do_renego) {
+
+    /* configure the subclss inorder to fill the CodecID field of mfxVideoParam
+     * which is mandatory to invoke the MFXVideoDECODE_DecodeHeader API */
+    klass->configure (thiz);
+
+    /* gstreamer caps will not bring all the necessary parameters
+     * required for optimal decode configuration. For eg: the required numbers
+     * of surfaces to be allocated can be calculated based on H264 SEI header
+     * and this information can't be retrieved from the negotiated caps.
+     * Another use case is VP9 stream under ivf header where the ivf header only
+     * communicate the initial frame resolution which can change dynamically.
+     * So instead of introducing the codecparser dependency to parse the headers
+     * inside msdk plugin, we simply use the mfx apis to extract header information */
+    status = MFXVideoDECODE_DecodeHeader (session, &bitstream, &thiz->param);
+
+    if (status == MFX_ERR_MORE_DATA) {
+      flow = GST_FLOW_OK;
+      goto done;
+    }
+
+    gst_msdkdec_negotiate (thiz);
+  }
+
   for (;;) {
     task = &g_array_index (thiz->tasks, MsdkDecTask, thiz->next_task);
     flow = gst_msdkdec_finish_task (thiz, task);
@@ -816,6 +873,7 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
     flow = GST_FLOW_OK;
   }
 
+done:
   if (surface)
     free_surface (thiz, surface);
 
@@ -916,7 +974,7 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   GstStructure *pool_config = NULL;
   GstCaps *pool_caps;
   guint size, min_buffers, max_buffers;
-
+  g_message ("decide_allocation");
   if (!GST_VIDEO_DECODER_CLASS (parent_class)->decide_allocation (decoder,
           query))
     return FALSE;
@@ -931,6 +989,7 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
    * we will always have that number of decode operations in-flight */
   gst_buffer_pool_config_get_params (pool_config, &pool_caps, &size,
       &min_buffers, &max_buffers);
+  g_message ("poolcaps %s", gst_caps_to_string (pool_caps));
   min_buffers += thiz->async_depth;
   if (max_buffers)
     max_buffers += thiz->async_depth;
@@ -1010,8 +1069,10 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   /* Initialize MSDK decoder before new bufferpool tries to alloc each buffer,
    * which requires information of frame allocation.
    */
+  g_message ("invoke init");
   if (!gst_msdkdec_init_decoder (thiz))
     return FALSE;
+  g_message ("invoke init done");
 
   return TRUE;
 
