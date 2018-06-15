@@ -57,7 +57,7 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 G_DEFINE_TYPE (GstMsdkVP8Dec, gst_msdkvp8dec, GST_TYPE_MSDKDEC);
 
 static gboolean
-gst_msdkvp8dec_configure (GstMsdkDec * decoder)
+gst_msdkvp8dec_configure (GstMsdkDec * decoder, gboolean load_plugin)
 {
   GstMsdkVP8Dec *vp8dec = GST_MSDKVP8DEC (decoder);
   mfxSession session;
@@ -65,17 +65,17 @@ gst_msdkvp8dec_configure (GstMsdkDec * decoder)
   const mfxPluginUID *uid;
 
   session = gst_msdk_context_get_session (decoder->context);
-
-  uid = &MFX_PLUGINID_VP8D_HW;
-
-  status = MFXVideoUSER_Load (session, uid, 1);
-  if (status < MFX_ERR_NONE) {
-    GST_ERROR_OBJECT (vp8dec, "Media SDK Plugin load failed (%s)",
-        msdk_status_to_string (status));
-    return FALSE;
-  } else if (status > MFX_ERR_NONE) {
-    GST_WARNING_OBJECT (vp8dec, "Media SDK Plugin load warning: %s",
-        msdk_status_to_string (status));
+  if (load_plugin) {
+    uid = &MFX_PLUGINID_VP8D_HW;
+    status = MFXVideoUSER_Load (session, uid, 1);
+    if (status < MFX_ERR_NONE) {
+      GST_ERROR_OBJECT (vp8dec, "Media SDK Plugin load failed (%s)",
+          msdk_status_to_string (status));
+      return FALSE;
+    } else if (status > MFX_ERR_NONE) {
+      GST_WARNING_OBJECT (vp8dec, "Media SDK Plugin load warning: %s",
+          msdk_status_to_string (status));
+    }
   }
 
   decoder->param.mfx.CodecId = MFX_CODEC_VP8;

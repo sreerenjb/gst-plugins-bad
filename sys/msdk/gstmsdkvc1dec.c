@@ -66,7 +66,7 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 G_DEFINE_TYPE (GstMsdkVC1Dec, gst_msdkvc1dec, GST_TYPE_MSDKDEC);
 
 static gboolean
-gst_msdkvc1dec_configure (GstMsdkDec * decoder)
+gst_msdkvc1dec_configure (GstMsdkDec * decoder, gboolean load_plugin)
 {
   GstBuffer *buffer;
   GstCaps *caps;

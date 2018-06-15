@@ -53,7 +53,7 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 G_DEFINE_TYPE (GstMsdkMPEG2Dec, gst_msdkmpeg2dec, GST_TYPE_MSDKDEC);
 
 static gboolean
-gst_msdkmpeg2dec_configure (GstMsdkDec * decoder)
+gst_msdkmpeg2dec_configure (GstMsdkDec * decoder, gboolean load_plugin)
 {
   decoder->param.mfx.CodecId = MFX_CODEC_MPEG2;
   return TRUE;

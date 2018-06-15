@@ -59,7 +59,7 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 G_DEFINE_TYPE (GstMsdkMJPEGDec, gst_msdkmjpegdec, GST_TYPE_MSDKDEC);
 
 static gboolean
-gst_msdkmjpegdec_configure (GstMsdkDec * decoder)
+gst_msdkmjpegdec_configure (GstMsdkDec * decoder, gboolean load_plugin)
 {
   decoder->param.mfx.CodecId = MFX_CODEC_JPEG;
 

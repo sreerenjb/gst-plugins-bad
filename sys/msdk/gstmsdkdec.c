@@ -285,7 +285,7 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
 
     /* allow subclass configure further */
     if (klass->configure) {
-      if (!klass->configure (thiz))
+      if (!klass->configure (thiz, TRUE))
         goto failed;
     }
   }
@@ -320,7 +320,6 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
         request.NumFrameMin, request.NumFrameSuggested, thiz->param.AsyncDepth);
     goto failed;
   }
-  g_message ("numframesuggested %d", request.NumFrameSuggested);
   if (thiz->use_video_memory) {
     gint shared_async_depth;
 
@@ -679,7 +678,7 @@ gst_msdkdec_negotiate (GstMsdkDec * thiz)
 {
   GST_DEBUG_OBJECT (thiz,
       "Incompatible Video parameter, need full decoder reset!");
-  g_message ("negotiate");
+
   /* Retrieve any pending frames and push them downstream */
   /* Fixme1??: This may not work well for VP9 which allows varying resolution
    * frames to have inter-dependency */
@@ -764,10 +763,9 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
   session = gst_msdk_context_get_session (thiz->context);
 
   if (!thiz->initialized || thiz->do_renego) {
-
     /* configure the subclss inorder to fill the CodecID field of mfxVideoParam
      * which is mandatory to invoke the MFXVideoDECODE_DecodeHeader API */
-    klass->configure (thiz);
+    klass->configure (thiz, TRUE);
 
     /* gstreamer caps will not bring all the necessary parameters
      * required for optimal decode configuration. For eg: the required numbers
@@ -974,7 +972,7 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   GstStructure *pool_config = NULL;
   GstCaps *pool_caps;
   guint size, min_buffers, max_buffers;
-  g_message ("decide_allocation");
+
   if (!GST_VIDEO_DECODER_CLASS (parent_class)->decide_allocation (decoder,
           query))
     return FALSE;
@@ -989,7 +987,6 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
    * we will always have that number of decode operations in-flight */
   gst_buffer_pool_config_get_params (pool_config, &pool_caps, &size,
       &min_buffers, &max_buffers);
-  g_message ("poolcaps %s", gst_caps_to_string (pool_caps));
   min_buffers += thiz->async_depth;
   if (max_buffers)
     max_buffers += thiz->async_depth;
@@ -1069,10 +1066,8 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   /* Initialize MSDK decoder before new bufferpool tries to alloc each buffer,
    * which requires information of frame allocation.
    */
-  g_message ("invoke init");
   if (!gst_msdkdec_init_decoder (thiz))
     return FALSE;
-  g_message ("invoke init done");
 
   return TRUE;
 

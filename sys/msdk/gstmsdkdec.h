@@ -94,7 +94,7 @@ struct _GstMsdkDecClass
 {
   GstVideoDecoderClass parent_class;
 
-  gboolean (*configure) (GstMsdkDec * decoder);
+  gboolean (*configure) (GstMsdkDec * decoder, gboolean load_plugin);
 };
 
 struct _MsdkDecTask

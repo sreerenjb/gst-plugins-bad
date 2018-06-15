@@ -51,7 +51,7 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
 G_DEFINE_TYPE (GstMsdkH264Dec, gst_msdkh264dec, GST_TYPE_MSDKDEC);
 
 static gboolean
-gst_msdkh264dec_configure (GstMsdkDec * decoder)
+gst_msdkh264dec_configure (GstMsdkDec * decoder, gboolean load_plugin)
 {
   decoder->param.mfx.CodecId = MFX_CODEC_AVC;
   return TRUE;
