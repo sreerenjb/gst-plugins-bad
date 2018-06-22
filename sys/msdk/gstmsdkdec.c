@@ -434,6 +434,7 @@ gst_msdkdec_set_src_caps (GstMsdkDec * thiz, gboolean need_allocation)
 {
   GstVideoCodecState *output_state;
   GstVideoInfo *vinfo;
+  GstVideoAlignment align;
   GstCaps *allocation_caps = NULL;
   guint width, height;
   const gchar *format_str;
@@ -454,6 +455,8 @@ gst_msdkdec_set_src_caps (GstMsdkDec * thiz, gboolean need_allocation)
 
   /* Ensure output_state->caps and info has same width and height */
   vinfo = &output_state->info;
+  gst_msdk_set_video_alignment (vinfo, &align);
+  gst_video_info_align (vinfo, &align);
   output_state->caps = gst_video_info_to_caps (vinfo);
   if (srcpad_can_dmabuf (thiz))
     gst_caps_set_features (output_state->caps, 0,
@@ -927,12 +930,13 @@ gst_msdkdec_create_buffer_pool (GstMsdkDec * thiz, GstCaps * caps,
   GstBufferPool *pool = NULL;
   GstStructure *config;
   GstAllocator *allocator = NULL;
-  GstVideoInfo info;
+  GstVideoInfo info, *negotiated_info;
   GstVideoAlignment align;
   GstAllocationParams params = { 0, 31, 0, 0, };
   mfxFrameAllocResponse *alloc_resp = NULL;
 
   alloc_resp = &thiz->alloc_resp;
+  negotiated_info = &thiz->output_info;
 
   pool = gst_msdk_buffer_pool_new (thiz->context, alloc_resp);
   if (!pool)
@@ -946,13 +950,18 @@ gst_msdkdec_create_buffer_pool (GstMsdkDec * thiz, GstCaps * caps,
   gst_msdk_set_video_alignment (&info, &align);
   gst_video_info_align (&info, &align);
 
+  /* allocators should use the same width/height/stride/height_alignment of
+   * negotiated output caps which is what we configure in msdk_allocator */
   if (thiz->use_dmabuf)
     allocator =
-        gst_msdk_dmabuf_allocator_new (thiz->context, &info, alloc_resp);
+        gst_msdk_dmabuf_allocator_new (thiz->context, negotiated_info,
+        alloc_resp);
   else if (thiz->use_video_memory)
-    allocator = gst_msdk_video_allocator_new (thiz->context, &info, alloc_resp);
+    allocator =
+        gst_msdk_video_allocator_new (thiz->context, negotiated_info,
+        alloc_resp);
   else
-    allocator = gst_msdk_system_allocator_new (&info);
+    allocator = gst_msdk_system_allocator_new (negotiated_info);
 
   if (!allocator)
     goto error_no_allocator;
