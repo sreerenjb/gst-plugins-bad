@@ -801,15 +801,21 @@ gst_msdkdec_handle_frame (GstVideoDecoder * decoder, GstVideoCodecFrame * frame)
       goto done;
     }
 
-    /* Check whether we need complete reset for dynamic resolution change */
     if (thiz->initialized && thiz->allocation_caps)
       gst_video_info_from_caps (&alloc_info, thiz->allocation_caps);
+
+    /* Check whether we need complete reset for dynamic resolution change */
     if (!thiz->initialized || (thiz->initialized &&
             (thiz->param.mfx.FrameInfo.Width >
                 GST_VIDEO_INFO_WIDTH (&alloc_info)
                 || thiz->param.mfx.FrameInfo.Height >
                 GST_VIDEO_INFO_HEIGHT (&alloc_info))))
       hard_reset = TRUE;
+
+    /* if subclass requested for the force reset */
+    if (thiz->force_reset_on_res_change)
+      hard_reset = TRUE;
+
     gst_msdkdec_negotiate (thiz, hard_reset);
   }
 
@@ -1335,5 +1341,6 @@ gst_msdkdec_init (GstMsdkDec * thiz)
   thiz->output_order = PROP_OUTPUT_ORDER_DEFAULT;
   thiz->is_packetized = TRUE;
   thiz->do_renego = TRUE;
+  thiz->force_reset_on_res_change = TRUE;
   thiz->adapter = gst_adapter_new ();
 }

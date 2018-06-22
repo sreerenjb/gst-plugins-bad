@@ -76,6 +76,8 @@ struct _GstMsdkDec
   GstAdapter *adapter;
   gboolean is_packetized;
   gboolean do_renego;
+  /* force reset on resolution change */
+  gboolean force_reset_on_res_change;
 
   /* MFX context */
   GstMsdkContext *context;
