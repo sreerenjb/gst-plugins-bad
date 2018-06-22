@@ -62,11 +62,12 @@ struct _GstMsdkDec
 
   /* input description */
   GstVideoCodecState *input_state;
-  /* output info (may not be equal to allocation info) */
+  /* aligned msdk pool info */
   GstVideoInfo output_info;
-  GstCaps *allocation_caps;
   GstBufferPool *pool;
-  GstVideoInfo pool_info;
+  GstCaps *allocation_caps;
+  /* downstream pool info based on allocation query */
+  GstVideoInfo non_msdk_pool_info;
   mfxFrameAllocResponse alloc_resp;
   gboolean use_video_memory;
   gboolean use_dmabuf;
@@ -75,7 +76,10 @@ struct _GstMsdkDec
   /* for packetization */
   GstAdapter *adapter;
   gboolean is_packetized;
+  /* cap negotiation needed, allocation may or may not be required*/
   gboolean do_renego;
+  /* re-allocation is mandatory if enabled */
+  gboolean do_realloc;
   /* force reset on resolution change */
   gboolean force_reset_on_res_change;
 
