@@ -333,6 +333,15 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
         request.NumFrameMin, request.NumFrameSuggested, thiz->param.AsyncDepth);
     goto failed;
   }
+
+  /* account the downstream requirement */
+  if (G_LIKELY (thiz->min_prealloc_buffers))
+    request.NumFrameSuggested += thiz->min_prealloc_buffers;
+  else
+    GST_WARNING_OBJECT (thiz,
+        "Allocating resources without considering the downstream requirement"
+        "or extra scratch surface count");
+
   if (thiz->use_video_memory) {
     gint shared_async_depth;
 
@@ -345,6 +354,10 @@ gst_msdkdec_init_decoder (GstMsdkDec * thiz)
       request.Type |= MFX_MEMTYPE_EXPORT_FRAME;
     gst_msdk_frame_alloc (thiz->context, &request, &thiz->alloc_resp);
   }
+
+  /* update the prealloc_buffer count which will be used later
+   * as GstBufferPool min_buffers */
+  thiz->min_prealloc_buffers = request.NumFrameSuggested;
 
   GST_DEBUG_OBJECT (thiz, "Required %d surfaces (%d suggested)",
       request.NumFrameMin, request.NumFrameSuggested);
@@ -1058,10 +1071,23 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   if (max_buffers)
     max_buffers += thiz->async_depth;
 
+  /* increase the min_buffers by 1 for smooth display in render pipeline */
+  min_buffers += 1;
+
+  /* this will get updated with msdk requirement */
+  thiz->min_prealloc_buffers = min_buffers;
+
   if (_gst_caps_has_feature (pool_caps, GST_CAPS_FEATURE_MEMORY_DMABUF)) {
     GST_INFO_OBJECT (decoder, "This MSDK decoder uses DMABuf memory");
     thiz->use_video_memory = thiz->use_dmabuf = TRUE;
   }
+
+  /* Initialize MSDK decoder before new bufferpool tries to alloc each buffer,
+   * which requires information of frame allocation.
+   * No effect if already initialized.
+   */
+  if (!gst_msdkdec_init_decoder (thiz))
+    return FALSE;
 
   /* Decoder always use its own pool. So we create a pool if msdk apis
    * previously requested for allocation (do_realloc = TRUE) */
@@ -1122,11 +1148,6 @@ gst_msdkdec_decide_allocation (GstVideoDecoder * decoder, GstQuery * query)
   if (pool)
     gst_object_unref (pool);
 
-  /* Initialize MSDK decoder before new bufferpool tries to alloc each buffer,
-   * which requires information of frame allocation.
-   */
-  if (!gst_msdkdec_init_decoder (thiz))
-    return FALSE;
 
   return TRUE;
 

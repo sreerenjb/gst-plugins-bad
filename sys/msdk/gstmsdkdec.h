@@ -82,6 +82,10 @@ struct _GstMsdkDec
   gboolean do_realloc;
   /* force reset on resolution change */
   gboolean force_reset_on_res_change;
+  /* minimum number of buffers to be allocated, this should
+   * include downstream requirement, msdk suggestion and extra
+   * surface allocation for smooth display in render pipeline */
+  guint min_prealloc_buffers;
 
   /* MFX context */
   GstMsdkContext *context;
